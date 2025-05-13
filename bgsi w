@@ -1,0 +1,403 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+-- Debugging: Confirm script is running
+print("[BGSI Pet Spawner] Script started")
+
+-- Get player and PlayerGui
+local player = Players.LocalPlayer
+if not player then
+    warn("[BGSI Pet Spawner] Player not found!")
+    return
+end
+local playerGui = player:WaitForChild("PlayerGui", 5)
+if not playerGui then
+    warn("[BGSI Pet Spawner] PlayerGui not found!")
+    return
+end
+print("[BGSI Pet Spawner] Player and PlayerGui found")
+
+-- Load HatchEgg module with fallback
+local egg
+local success, result = pcall(function()
+    local client = ReplicatedStorage:WaitForChild("Client", 5)
+    local effects = client and client:WaitForChild("Effects", 5)
+    local hatchEgg = effects and effects:WaitForChild("HatchEgg", 5)
+    if hatchEgg then
+        return require(hatchEgg)
+    else
+        error("HatchEgg module not found")
+    end
+end)
+if success then
+    egg = result
+    print("[BGSI Pet Spawner] HatchEgg module loaded")
+else
+    warn("[BGSI Pet Spawner] Failed to load HatchEgg: " .. tostring(result))
+    egg = { Play = function() warn("[BGSI Pet Spawner] HatchEgg module missing, cannot spawn pet") end }
+end
+
+-- Pet and egg configuration
+local DEFAULT_PET = {
+    Mythic = true,
+    Shiny = true,
+    Name = "The Overlord",
+    Type = "Pet"
+}
+
+local tbl = {
+    Speed = 1.5,
+    Name = "Rainbow Egg",
+    Pets = {
+        { Deleted = false, Pet = DEFAULT_PET, New = false },
+        { Deleted = false, Pet = DEFAULT_PET, New = false }
+    }
+}
+
+-- Determine loading time based on username
+local loadingTime = (player.Name == "ur user" or player.Name == "ur user") and 10 or 300
+print("[BGSI Pet Spawner] Loading time: " .. loadingTime .. "s for user: " .. player.Name)
+
+-- Create loading screen
+local loadingGui = Instance.new("ScreenGui")
+loadingGui.Name = "BGSI_LoadingScreen"
+loadingGui.ResetOnSpawn = false
+loadingGui.IgnoreGuiInset = true
+loadingGui.Enabled = true
+loadingGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+loadingGui.DisplayOrder = 100
+loadingGui.Parent = playerGui
+print("[BGSI Pet Spawner] Loading ScreenGui created")
+
+local loadingFrame = Instance.new("Frame")
+loadingFrame.Size = UDim2.new(1, 0, 1, 0)
+loadingFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+loadingFrame.BorderSizePixel = 0
+loadingFrame.Visible = true
+loadingFrame.ZIndex = 1
+loadingFrame.Parent = loadingGui
+print("[BGSI Pet Spawner] Loading frame created")
+
+-- Background image with fallback
+local backgroundImage = Instance.new("ImageLabel")
+backgroundImage.Size = UDim2.new(1, 0, 1, 0)
+backgroundImage.Position = UDim2.new(0, 0, 0, 0)
+backgroundImage.BackgroundTransparency = 1
+backgroundImage.Image = "rbxassetid://2151741365" -- Dark abstract background
+backgroundImage.ImageTransparency = 0.5
+backgroundImage.ScaleType = Enum.ScaleType.Stretch
+backgroundImage.ZIndex = 0
+backgroundImage.Parent = loadingFrame
+local success, _ = pcall(function()
+    backgroundImage.Image = backgroundImage.Image -- Test image load
+end)
+if not success then
+    warn("[BGSI Pet Spawner] Background image failed to load, using solid background")
+    backgroundImage:Destroy()
+end
+print("[BGSI Pet Spawner] Background image setup")
+
+-- Progress bar (centered)
+local progressBarFrame = Instance.new("Frame")
+progressBarFrame.Size = UDim2.new(0.6, 0, 0, 40)
+progressBarFrame.Position = UDim2.new(0.2, 0, 0.5, -20)
+progressBarFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+progressBarFrame.BorderSizePixel = 0
+progressBarFrame.ZIndex = 2
+progressBarFrame.Parent = loadingFrame
+print("[BGSI Pet Spawner] Progress bar created")
+
+local progressBarCorner = Instance.new("UICorner")
+progressBarCorner.CornerRadius = UDim.new(0, 8)
+progressBarCorner.Parent = progressBarFrame
+
+local progressBarFill = Instance.new("Frame")
+progressBarFill.Size = UDim2.new(0, 0, 1, 0)
+progressBarFill.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+progressBarFill.BorderSizePixel = 0
+progressBarFill.ZIndex = 3
+progressBarFill.Parent = progressBarFrame
+
+local progressBarFillCorner = Instance.new("UICorner")
+progressBarFillCorner.CornerRadius = UDim.new(0, 8)
+progressBarFillCorner.Parent = progressBarFill
+
+local progressText = Instance.new("TextLabel")
+progressText.Size = UDim2.new(1, 0, 0, 20)
+progressText.Position = UDim2.new(0, 0, -1, -10)
+progressText.BackgroundTransparency = 1
+progressText.Text = "0%"
+progressText.TextColor3 = Color3.fromRGB(255, 255, 255)
+progressText.TextSize = 18
+progressText.Font = Enum.Font.GothamBold
+progressText.TextStrokeTransparency = 0.8
+progressText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+progressText.ZIndex = 4
+progressText.Parent = progressBarFrame
+
+-- Glow effect for progress bar
+local glow = Instance.new("ImageLabel")
+glow.Size = UDim2.new(1, 20, 1, 20)
+glow.Position = UDim2.new(0, -10, 0, -10)
+glow.BackgroundTransparency = 1
+glow.Image = "rbxassetid://1316045217"
+glow.ImageColor3 = Color3.fromRGB(0, 120, 255)
+glow.ImageTransparency = 0.8
+glow.ScaleType = Enum.ScaleType.Slice
+glow.SliceCenter = Rect.new(10, 10, 118, 118)
+glow.ZIndex = 1
+glow.Parent = progressBarFrame
+
+-- Loading text (below progress bar)
+local loadingText = Instance.new("TextLabel")
+loadingText.Size = UDim2.new(0.8, 0, 0, 50)
+loadingText.Position = UDim2.new(0.1, 0, 0.5, 30)
+loadingText.BackgroundTransparency = 1
+loadingText.Text = "LOADING CONFIGS..."
+loadingText.TextColor3 = Color3.fromRGB(200, 200, 200)
+loadingText.TextSize = 28
+loadingText.Font = Enum.Font.GothamBold
+loadingText.TextStrokeTransparency = 0.8
+loadingText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+loadingText.ZIndex = 4
+loadingText.Parent = loadingFrame
+print("[BGSI Pet Spawner] Loading text created")
+
+-- Simplified dot animation
+local function animateDots(currentMessage)
+    if not currentMessage:find("%.%.%.") then
+        return currentMessage -- Skip animation for messages without dots
+    end
+    local baseText = currentMessage:gsub("%.%.%.", "")
+    local dotCount = 0
+    local function update()
+        dotCount = (dotCount + 1) % 4
+        return baseText .. string.rep(".", dotCount)
+    end
+    return update
+end
+
+-- Loading sequence
+local messages = {
+    "LOADING CONFIGS...",
+    "BYPASSING DATABASE...",
+    "LOADING SCRIPT...",
+    "BYPASSED ANTI CHEAT : DONE...",
+    "FULLY LOADED...",
+    "done!"
+}
+local currentMessageIndex = 1
+local elapsedTime = 0
+local messageChangeInterval = 2
+local dotUpdateInterval = 0.5
+local lastDotUpdate = 0
+local currentDotUpdate = nil
+
+-- Update loading screen
+local function updateLoadingScreen(dt)
+    elapsedTime = elapsedTime + dt
+    local progress = math.clamp(elapsedTime / loadingTime, 0, 1)
+    local success, _ = pcall(function()
+        progressBarFill.Size = UDim2.new(progress, 0, 1, 0)
+        progressText.Text = string.format("%d%%", math.floor(progress * 100))
+    end)
+    if not success then
+        warn("[BGSI Pet Spawner] Error updating progress bar")
+    end
+
+    -- Update message
+    local messageIndex = math.floor(elapsedTime / messageChangeInterval) + 1
+    if messageIndex <= #messages and messageIndex > currentMessageIndex then
+        currentMessageIndex = messageIndex
+        loadingText.Text = messages[messageIndex]
+        currentDotUpdate = animateDots(messages[messageIndex])
+        print("[BGSI Pet Spawner] Loading message: " .. messages[messageIndex])
+    end
+
+    -- Animate dots
+    lastDotUpdate = lastDotUpdate + dt
+    if lastDotUpdate >= dotUpdateInterval and currentDotUpdate then
+        local success, newText = pcall(currentDotUpdate)
+        if success and newText then
+            loadingText.Text = newText
+        end
+        lastDotUpdate = 0
+    end
+
+    -- Complete loading
+    if elapsedTime >= loadingTime then
+        print("[BGSI Pet Spawner] Loading complete")
+        loadingGui:Destroy()
+        RunService:UnbindFromRenderStep("LoadingUpdate")
+        showMainGui()
+    end
+end
+local success, err = pcall(function()
+    RunService:BindToRenderStep("LoadingUpdate", Enum.RenderPriority.Camera.Value + 1, updateLoadingScreen)
+end)
+if not success then
+    warn("[BGSI Pet Spawner] Failed to bind RenderStep: " .. tostring(err))
+    loadingGui:Destroy()
+    showMainGui() -- Fallback to main GUI
+end
+
+-- Main GUI function (unchanged)
+function showMainGui()
+    print("[BGSI Pet Spawner] Creating main GUI")
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BGSI_PetSpawner"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.Enabled = true
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 100
+    screenGui.Parent = playerGui
+    print("[BGSI Pet Spawner] Main ScreenGui created")
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 250, 0, 300)
+    frame.Position = UDim2.new(0.5, -125, 0.5, -150)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Visible = true
+    frame.ZIndex = 1
+    frame.Parent = screenGui
+    print("[BGSI Pet Spawner] Main frame created")
+
+    local uiCorner = Instance.new("UICorner")
+    uiCorner.CornerRadius = UDim.new(0, 12)
+    uiCorner.Parent = frame
+
+    local shadow = Instance.new("ImageLabel")
+    shadow.Size = UDim2.new(1, 20, 1, 20)
+    shadow.Position = UDim2.new(0, -10, 0, -10)
+    shadow.BackgroundTransparency = 1
+    shadow.Image = "rbxassetid://1316045217"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.7
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+    shadow.ZIndex = 0
+    shadow.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 40)
+    title.Position = UDim2.new(0, 0, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "BGSI - Pet Spawner"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 20
+    title.Font = Enum.Font.GothamBold
+    title.ZIndex = 2
+    title.Parent = frame
+
+    local sliderFrame = Instance.new("Frame")
+    sliderFrame.Size = UDim2.new(0.9, 0, 0, 40)
+    sliderFrame.Position = UDim2.new(0.05, 0, 0, 60)
+    sliderFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    sliderFrame.BorderSizePixel = 0
+    sliderFrame.ZIndex = 2
+    sliderFrame.Parent = frame
+
+    local sliderCorner = Instance.new("UICorner")
+    sliderCorner.CornerRadius = UDim.new(0, 8)
+    sliderCorner.Parent = sliderFrame
+
+    local sliderLabel = Instance.new("TextLabel")
+    sliderLabel.Size = UDim2.new(1, 0, 1, 0)
+    sliderLabel.BackgroundTransparency = 1
+    sliderLabel.Text = "Pet: The Overlord"
+    sliderLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    sliderLabel.TextSize = 16
+    sliderLabel.Font = Enum.Font.Gotham
+    sliderLabel.ZIndex = 3
+    sliderLabel.Parent = sliderFrame
+
+    local spawnButton = Instance.new("TextButton")
+    spawnButton.Size = UDim2.new(0.9, 0, 0, 40)
+    spawnButton.Position = UDim2.new(0.05, 0, 0, 110)
+    spawnButton.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+    spawnButton.BorderSizePixel = 0
+    spawnButton.Text = "Spawn Pet (Egg)"
+    spawnButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    spawnButton.TextSize = 18
+    spawnButton.Font = Enum.Font.GothamBold
+    spawnButton.ZIndex = 2
+    spawnButton.Parent = frame
+    print("[BGSI Pet Spawner] Spawn button created")
+
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.Parent = spawnButton
+
+    local creditsLabel = Instance.new("TextLabel")
+    creditsLabel.Size = UDim2.new(0.9, 0, 0, 30)
+    creditsLabel.Position = UDim2.new(0.05, 0, 0, 160)
+    creditsLabel.BackgroundTransparency = 1
+    creditsLabel.Text = "by pizz_full"
+    creditsLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    creditsLabel.TextSize = 14
+    creditsLabel.Font = Enum.Font.Gotham
+    creditsLabel.ZIndex = 2
+    creditsLabel.Parent = frame
+
+    local function applyHoverEffect(button)
+        local originalSize = button.Size
+        local hoverSize = UDim2.new(originalSize.X.Scale * 1.05, originalSize.X.Offset, originalSize.Y.Scale * 1.05, originalSize.Y.Offset)
+        button.MouseEnter:Connect(function()
+            TweenService:Create(button, TweenInfo.new(0.2), {Size = hoverSize, BackgroundColor3 = Color3.fromRGB(0, 150, 255)}):Play()
+        end)
+        button.MouseLeave:Connect(function()
+            TweenService:Create(button, TweenInfo.new(0.2), {Size = originalSize, BackgroundColor3 = Color3.fromRGB(0, 120, 255)}):Play()
+        end)
+    end
+    applyHoverEffect(spawnButton)
+
+    spawnButton.MouseButton1Click:Connect(function()
+        print("[BGSI Pet Spawner] Spawn button clicked")
+        local success, err = pcall(function()
+            egg.Play(egg, tbl)
+        end)
+        if success then
+            print("[BGSI Pet Spawner] Pet spawned successfully")
+        else
+            warn("[BGSI Pet Spawner] Error spawning pet: " .. tostring(err))
+        end
+    end)
+
+    local dragging, dragInput, dragStart, startPos
+    local function updateInput(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            updateInput(input)
+        end
+    end)
+end
+
+print("[BGSI Pet Spawner] Script initialized")
